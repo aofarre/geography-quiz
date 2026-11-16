@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Atlas Quest checks</title></head>
+<body>
+  <h1>Atlas Quest checks</h1>
+  <pre id="result">Running…</pre>
+  <iframe id="app" src="../index.html" title="Quiz under test" hidden></iframe>
+  <script>
+    const result = document.getElementById("result");
+    const frame = document.getElementById("app");
+    const assert = (condition, message) => { if (!condition) throw new Error(message); };
+    frame.addEventListener("load", async () => {
+      try {
+        const app = frame.contentWindow;
+        const doc = app.document;
+        const evaluate = expression => app.eval(expression);
+        const deadline = Date.now() + 10000;
+        while (!evaluate("mapReady") && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert(evaluate("mapReady"), "Map did not load");
+        assert(evaluate("countryCodes.length") === 80, "Country union should contain 80 unique countries");
+        assert(evaluate("countries.length") === 80, "Every country must have map data");
+        assert(evaluate("Object.values(groups).map(g => g.split(' ').length).join(',')") === "27,38,32,20,23", "Group sizes changed");
+
+        for (const mode of ["continents", "oceans", "countries", "all"]) {
+          doc.querySelector(`[data-mode="${mode}"]`).click();
+          const seen = new Set();
+          for (let i = 0; i < 10; i++) {
+            const choices = [...doc.querySelectorAll(".answer")];
+            const target = evaluate("nameOf(question.item)");
+            assert(choices.length === 3 && new Set(choices.map(button => button.textContent.slice(1))).size === 3, `${mode}: expected three distinct choices`);
+            seen.add(target);
+            const correct = choices.find(button => button.textContent.slice(1) === target);
+            assert(correct, `${mode}: correct answer missing`);
+            correct.click();
+            assert(correct.classList.contains("correct") && choices.every(button => button.disabled), `${mode}: answer feedback failed`);
+            doc.getElementById("next").click();
+          }
+          assert(!doc.getElementById("result").hidden && doc.getElementById("result-text").textContent.includes("10 out of 10"), `${mode}: round result failed`);
+          if (mode === "countries") assert(seen.size === 10, "Country questions repeated in one round");
+        }
+
+        doc.querySelector('[data-mode="countries"]').click();
+        const target = evaluate("nameOf(question.item)");
+        const wrong = [...doc.querySelectorAll(".answer")].find(button => button.textContent.slice(1) !== target);
+        wrong.click();
+        assert(wrong.classList.contains("incorrect") && doc.getElementById("feedback").textContent.includes(target), "Wrong-answer feedback failed");
+        assert(doc.getElementById("score").textContent.trim() === "0 / 1", "Incorrect answer changed score");
+        doc.querySelector('[data-mode="oceans"]').click();
+        assert(doc.getElementById("score").textContent.trim() === "0 / 0", "Changing category did not reset the round");
+        assert(doc.getElementById("prompt").textContent === "Which ocean is highlighted?", "Question label incorrect");
+        result.textContent = "All checks passed.";
+      } catch (error) {
+        result.textContent = `FAILED: ${error.message}`;
+        console.error(error);
+      }
+    });
+  </script>
+</body>
+</html>
